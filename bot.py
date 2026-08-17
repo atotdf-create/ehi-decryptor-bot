@@ -22,7 +22,7 @@ DECRYPTOR_API_BASE_URL = "https://hat-slip-howdy--youtubepremken1.replit.app/api
 HOWDY_API_URL = "https://hat-slip-howdy--youtubepremken1.replit.app/api/howdy/decode"
 HAT_API_URL = "https://hat-slip-howdy--youtubepremken1.replit.app/api/hat/decode"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def start(update: Update, context) -> None:
     """Sends a welcome message and lists supported formats."""
     supported_formats = (
         "- .hc (HTTP Custom) 🛠️",
@@ -47,7 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def _join_list_with_newline(items: tuple) -> str:
     return "\n".join(items)
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_document(update: Update, context) -> None:
     """Handles document messages, detects file type, and calls the appropriate API endpoint."""
     document = update.message.document
     if not document:
@@ -127,7 +127,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await update.message.reply_text("🤔 File type not recognized for decryption. Please send a supported file type. 🤷‍♀️")
 
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_text_message(update: Update, context) -> None:
     """Handles text messages, checking for specific links."""
     user_message = update.message.text
     if not user_message:
