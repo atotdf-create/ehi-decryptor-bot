@@ -261,7 +261,7 @@ def main():
         log.error("TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    application = Application.builder().bot(QuotedBot(BOT_TOKEN)).token(BOT_TOKEN).build()
+    application = Application.builder().bot(QuotedBot(BOT_TOKEN)).build()
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
