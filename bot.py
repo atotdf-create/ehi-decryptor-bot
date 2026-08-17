@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 #!/usr/bin/env python3
 """
 DRAGON TECH Full-Featured Security & Toolkit Bot
@@ -24,17 +25,13 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
-from telegram.constants import KeyboardButtonStyle, ParseMode
-from telegram.error import Conflict, InvalidToken
+from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
-    ApplicationHandlerStop,
     CallbackQueryHandler,
-    ChatJoinRequestHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
-    TypeHandler,
     filters,
 )
 
@@ -115,7 +112,7 @@ class QuotedBot(Bot):
         return await super().send_message(*args, **kwargs)
 
 def styled_button(text, *, callback_data=None, url=None, style="primary"):
-    kwargs = {"text": text, "style": style}
+    kwargs = {"text": text}
     if callback_data is not None:
         kwargs["callback_data"] = callback_data
     if url is not None:
@@ -206,16 +203,16 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [
-                KeyboardButton("🚀 𝗨𝗦𝗘 𝗧𝗢𝗢𝗟𝗦", style=KeyboardButtonStyle.SUCCESS),
-                KeyboardButton("✨ 𝗗𝗥𝗔𝗚𝗢𝗡 𝗔𝗜", style=KeyboardButtonStyle.SUCCESS),
+                KeyboardButton("🚀 USE TOOLS"),
+                KeyboardButton("✨ DRAGON AI"),
             ],
             [
-                KeyboardButton("🎁 𝗥𝗘𝗙𝗘𝗥 & 𝗘𝗔𝗥𝗡", style=KeyboardButtonStyle.SUCCESS),
-                KeyboardButton("👤 𝗠𝗬 𝗣𝗥𝗢𝗙𝗜𝗟𝗘", style=KeyboardButtonStyle.PRIMARY),
+                KeyboardButton("🎁 REFER & EARN"),
+                KeyboardButton("👤 MY PROFILE"),
             ],
             [
-                KeyboardButton("💎 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧𝗜𝗢𝗡", style=KeyboardButtonStyle.PRIMARY),
-                KeyboardButton("👨‍💻 𝗗𝗘𝗩𝗘𝗟𝗢𝗣𝗘𝗥", style=KeyboardButtonStyle.DANGER),
+                KeyboardButton("💎 SUBSCRIPTION"),
+                KeyboardButton("👨‍💻 DEVELOPER"),
             ],
         ],
         resize_keyboard=True,
@@ -242,22 +239,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not text:
         return
 
-    if text.startswith("🚀 𝗨𝗦𝗘"):
+    if "USE" in text:
         await update.message.reply_text("⚡ **DRAGON TECH Active Toolkit**\n\n- Unlimited Tunneling Host Scanner\n- Dark Web Virtual Numbers & Lightning OTP\n- VPS Cracker & RDP Auditor\n\nSend a target number, file, or command to begin!")
-    elif text.startswith("✨ 𝗗𝗥𝗔𝗚𝗢𝗡 𝗔𝗜"):
+    elif "AI" in text:
         await update.message.reply_text("🐉 **Dragon AI Assistant**\n\nPowered by Grok. Send me any question or prompt and I will answer instantly!")
-    elif text.startswith("🎁 𝗥𝗘𝗙𝗘𝗥"):
+    elif "REFER" in text:
         await update.message.reply_text(f"🎁 **Referral Program**\n\nShare your link to earn `{CREDITS_PER_REFERRAL}` credits per user:\n`https://t.me/{BOT_USERNAME}?start=ref_{update.effective_user.id}`")
-    elif text.startswith("👤 𝗠𝗬 𝗣𝗥𝗢𝗙𝗜𝗟𝗘"):
+    elif "PROFILE" in text:
         u = db_get_user(update.effective_user.id)
         credits = u[3] if u else 10
         await update.message.reply_text(f"👤 **Account Profile**\n\n- User ID: `{update.effective_user.id}`\n- Status: **VIP / Unlimited (Free Tier)**\n- Credits: `{credits} 🪙`\n- Branding: **DRAGON TECH EAT**")
-    elif text.startswith("💎 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧"):
+    elif "SUBSCRIPTION" in text:
         await update.message.reply_text(f"💎 **Subscription & Access**\n\nAll tools in DRAGON TECH are **100% FREE** with zero payment barriers. Contact: {SUBSCRIPTION_CONTACT}")
-    elif text.startswith("👨‍💻 𝗗𝗘𝗩𝗘𝗟𝗢𝗣𝗘𝗥"):
+    elif "DEVELOPER" in text:
         await update.message.reply_text(f"👨‍💻 **Developer Support**\n\nContact Admin: {DEVELOPER_CONTACT}\nTimezone: Africa/Nairobi (EAT)")
     else:
-        # AI prompt or general handling
         await update.message.reply_text(f"🐉 **Dragon AI Response**:\n\nProcessed query: `{text}`\nAll systems operational at peak performance!")
 
 def main():
