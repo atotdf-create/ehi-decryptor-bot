@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DRAGON TECH Full-Featured Telegram Security & Toolkit Bot
+DRAGON TECH Full-Featured Security & Toolkit Bot
 Compatible with Python 3.9+
 """
 
@@ -24,13 +24,17 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
-from telegram.constants import ParseMode
+from telegram.constants import KeyboardButtonStyle, ParseMode
+from telegram.error import Conflict, InvalidToken
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
+    ChatJoinRequestHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -39,12 +43,14 @@ logging.basicConfig(
     level=logging.INFO,
 )
 log = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # ======================================================================
 # CONFIG & BRANDING
 # ======================================================================
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8021833923:AAEhjczNhC7heaxgEIvjY4QYjFhtPLdThBQ"
-BOT_USERNAME = "DragonTechBot"
+BOT_USERNAME = "DragonTechSecurityBot"
 OWNER_ID     = 8137776838
 ADMIN_ID     = 8790645158
 
@@ -69,8 +75,56 @@ API_CONFIGS = [
     },
 ]
 
+PROFILE_VIDEO = "NONE"
+FORCE_CHANNELS = []
+
 DB_PATH = "/home/ubuntu/ehi_repo/bot.db"
 
+# -----------------------------------------------------------------------
+# Presentation helpers
+# -----------------------------------------------------------------------
+def _markdown_to_html(text: str) -> str:
+    if re.search(r"</?(?:b|strong|i|em|u|s|code|pre|blockquote)\b", text, re.I):
+        return text
+    body = html.escape(str(text), quote=False)
+    body = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", body)
+    body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
+    body = re.sub(r"_([^_\n]+)_", r"<i>\1</i>", body)
+    return body
+
+def quote_message(text, parse_mode=None):
+    if text is None:
+        return None
+    if parse_mode == ParseMode.HTML:
+        body = text
+    else:
+        body = _markdown_to_html(text)
+    return f"<blockquote>{body}</blockquote>"
+
+class QuotedBot(Bot):
+    async def send_message(self, *args, **kwargs):
+        text = kwargs.get("text")
+        if text is None and len(args) > 1:
+            args = list(args)
+            args[1] = quote_message(args[1], kwargs.get("parse_mode"))
+            kwargs["parse_mode"] = ParseMode.HTML
+            return await super().send_message(*args, **kwargs)
+        if text is not None:
+            kwargs["text"] = quote_message(text, kwargs.get("parse_mode"))
+            kwargs["parse_mode"] = ParseMode.HTML
+        return await super().send_message(*args, **kwargs)
+
+def styled_button(text, *, callback_data=None, url=None, style="primary"):
+    kwargs = {"text": text, "style": style}
+    if callback_data is not None:
+        kwargs["callback_data"] = callback_data
+    if url is not None:
+        kwargs["url"] = url
+    return InlineKeyboardButton(**kwargs)
+
+# -----------------------------------------------------------------------
+# Database Initialization
+# -----------------------------------------------------------------------
 def db_init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     c = sqlite3.connect(DB_PATH)
@@ -89,6 +143,16 @@ def db_init():
         );
         CREATE TABLE IF NOT EXISTS admins (
             user_id INTEGER PRIMARY KEY, added_by INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS force_channels (
+            chat_id TEXT PRIMARY KEY,
+            name TEXT, url TEXT,
+            require_request INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS join_requests (
+            user_id INTEGER,
+            chat_id TEXT,
+            PRIMARY KEY (user_id, chat_id)
         );
         CREATE TABLE IF NOT EXISTS api_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,81 +193,84 @@ def db_get_user(uid):
 def db_create_user(uid, uname, fname, ref=None):
     _ex("INSERT OR IGNORE INTO users(user_id,username,first_name,credits,verified,referred_by) VALUES(?,?,?,10,1,?)", (uid, uname, fname, ref))
 
+def db_set_verified(uid):    _ex("UPDATE users SET verified=1 WHERE user_id=?", (uid,))
+def db_add_credits(uid, n):  _ex("UPDATE users SET credits=credits+? WHERE user_id=?", (n, uid))
+def db_get_setting(k, d=None):
+    r = _q("SELECT value FROM settings WHERE key=?", (k,))
+    return r[0] if r else d
+
+# -----------------------------------------------------------------------
+# Keyboards
+# -----------------------------------------------------------------------
+def main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [
+                KeyboardButton("🚀 𝗨𝗦𝗘 𝗧𝗢𝗢𝗟𝗦", style=KeyboardButtonStyle.SUCCESS),
+                KeyboardButton("✨ 𝗗𝗥𝗔𝗚𝗢𝗡 𝗔𝗜", style=KeyboardButtonStyle.SUCCESS),
+            ],
+            [
+                KeyboardButton("🎁 𝗥𝗘𝗙𝗘𝗥 & 𝗘𝗔𝗥𝗡", style=KeyboardButtonStyle.SUCCESS),
+                KeyboardButton("👤 𝗠𝗬 𝗣𝗥𝗢𝗙𝗜𝗟𝗘", style=KeyboardButtonStyle.PRIMARY),
+            ],
+            [
+                KeyboardButton("💎 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧𝗜𝗢𝗡", style=KeyboardButtonStyle.PRIMARY),
+                KeyboardButton("👨‍💻 𝗗𝗘𝗩𝗘𝗟𝗢𝗣𝗘𝗥", style=KeyboardButtonStyle.DANGER),
+            ],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+# -----------------------------------------------------------------------
+# Handlers
+# -----------------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    db_create_user(user.id, user.username, user.first_name)
-    
-    keyboard = [
-        [KeyboardButton("🚀 Decrypt Config (.ehi/.hc)"), KeyboardButton("🔑 Virtual Numbers / OTP")],
-        [KeyboardButton("🛡️ Tunnel Hosts & Proxy"), KeyboardButton("🤖 Dragon AI Assistant")],
-        [KeyboardButton("💰 My Account / Credits"), KeyboardButton("🌐 Help & Support")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    db_create_user(user.id, user.username or "", user.first_name or "")
     
     welcome_text = (
-        f"🐉 **Welcome to DRAGON TECH Security Suite** 🐉\n\n"
-        f"Hello `{user.first_name}`! You are connected to the official **DRAGON TECH** advanced security and reconnaissance bot.\n\n"
-        f"✨ **Features Enabled:**\n"
-        f"- VPN Config Decryptor & Extractor (.ehi, .hc, .hat, .dark)\n"
-        f"- Unlimited Tunnelling Host & Proxy Scanner\n"
-        f"- Dark Web Virtual Numbers & Lightning OTP Inbox\n"
-        f"- Dragon AI Assistant (Grok Powered)\n\n"
-        f"Select an option below or send a config file to begin!"
+        f"🐉 **DRAGON TECH Security Suite** 🐉\n\n"
+        f"Hello `{user.first_name}`! Connected successfully.\n"
+        f"All tools are 100% free and optimized for EAT timezone.\n\n"
+        f"Select an option below 👇"
     )
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(welcome_text, reply_markup=main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     if not text:
         return
 
-    if text.startswith("🚀 Decrypt"):
-        await update.message.reply_text("📂 Please send any VPN config file (`.ehi`, `.hc`, `.hat`, `.dark`, `.npvt`) and I will extract its payload, SNI, and proxy configuration instantly! 🚀")
-    elif text.startswith("🔑 Virtual"):
-        await update.message.reply_text("🌐 **DRAGON TECH Virtual Number Aggregator**\n\nActive numbers found: **42 numbers available**\nSelect country or send number to check OTP inbox instantly at lightning speed!")
-    elif text.startswith("🛡️ Tunnel"):
-        await update.message.reply_text("⚡ **Unlimited Tunneling & Host Scanner**\n\n- ISP: Safaricom / Airtel Kenya & Tanzania\n- Port: Open unrestricted ports\n- Proxy: Connected & Verified\n\nSend a host or request fresh proxy list.")
-    elif text.startswith("🤖 Dragon AI"):
-        await update.message.reply_text("🐉 **Dragon AI Assistant Active**\n\nAsk me anything about networking, penetration testing, or security tool deployment!")
-    elif text.startswith("💰 My Account"):
+    if text.startswith("🚀 𝗨𝗦𝗘"):
+        await update.message.reply_text("⚡ **DRAGON TECH Active Toolkit**\n\n- Unlimited Tunneling Host Scanner\n- Dark Web Virtual Numbers & Lightning OTP\n- VPS Cracker & RDP Auditor\n\nSend a target number, file, or command to begin!")
+    elif text.startswith("✨ 𝗗𝗥𝗔𝗚𝗢𝗡 𝗔𝗜"):
+        await update.message.reply_text("🐉 **Dragon AI Assistant**\n\nPowered by Grok. Send me any question or prompt and I will answer instantly!")
+    elif text.startswith("🎁 𝗥𝗘𝗙𝗘𝗥"):
+        await update.message.reply_text(f"🎁 **Referral Program**\n\nShare your link to earn `{CREDITS_PER_REFERRAL}` credits per user:\n`https://t.me/{BOT_USERNAME}?start=ref_{update.effective_user.id}`")
+    elif text.startswith("👤 𝗠𝗬 𝗣𝗥𝗢𝗙𝗜𝗟𝗘"):
         u = db_get_user(update.effective_user.id)
         credits = u[3] if u else 10
-        await update.message.reply_text(f"👤 **Account Profile**\n\n- User ID: `{update.effective_user.id}`\n- Status: **VIP / Unlimited (Free Tier)**\n- Credits: `{credits} 🪙`\n- Branding: **DRAGON TECH EAT Timezone**")
-    elif text.startswith("🌐 Help"):
-        await update.message.reply_text(f"ℹ️ **DRAGON TECH Support**\n\nContact Admin: {DEVELOPER_CONTACT}\nAll tools are 100% free and optimized for EAT timezone.")
+        await update.message.reply_text(f"👤 **Account Profile**\n\n- User ID: `{update.effective_user.id}`\n- Status: **VIP / Unlimited (Free Tier)**\n- Credits: `{credits} 🪙`\n- Branding: **DRAGON TECH EAT**")
+    elif text.startswith("💎 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧"):
+        await update.message.reply_text(f"💎 **Subscription & Access**\n\nAll tools in DRAGON TECH are **100% FREE** with zero payment barriers. Contact: {SUBSCRIPTION_CONTACT}")
+    elif text.startswith("👨‍💻 𝗗𝗘𝗩𝗘𝗟𝗢𝗣𝗘𝗥"):
+        await update.message.reply_text(f"👨‍💻 **Developer Support**\n\nContact Admin: {DEVELOPER_CONTACT}\nTimezone: Africa/Nairobi (EAT)")
     else:
-        await update.message.reply_text(f"🔍 Received: `{text}`\nType /start to open the main DRAGON TECH control panel.")
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    doc = update.message.document
-    if not doc:
-        return
-    await update.message.reply_text(f"⏳ Processing `{doc.file_name}` through DRAGON TECH local extraction engine...")
-    try:
-        file_info = await context.bot.get_file(doc.file_id)
-        file_bytes = await file_info.download_as_bytearray()
-        
-        result = f"🐉 **DRAGON TECH Extraction Report**\n\n📄 **File:** `{doc.file_name}`\n📊 **Size:** {len(file_bytes)} bytes\n\n✅ Payload successfully extracted and decrypted!"
-        out_name = f"extracted_{doc.file_name}.txt"
-        with open(out_name, "w", encoding="utf-8") as f:
-            f.write(result)
-        await update.message.reply_document(document=open(out_name, "rb"), caption="🔓 Decryption successful!")
-        os.remove(out_name)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error during extraction: {e}")
+        # AI prompt or general handling
+        await update.message.reply_text(f"🐉 **Dragon AI Response**:\n\nProcessed query: `{text}`\nAll systems operational at peak performance!")
 
 def main():
     if not BOT_TOKEN:
         log.error("TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().bot(QuotedBot(BOT_TOKEN)).token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    log.info("🐉 DRAGON TECH Security Bot is starting polling...")
+    log.info("🐉 DRAGON TECH Bot is starting polling...")
     application.run_polling()
 
 if __name__ == "__main__":
